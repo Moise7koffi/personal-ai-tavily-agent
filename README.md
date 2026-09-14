@@ -1,25 +1,31 @@
-# Personal AI Agent — ReAct Loop with Tavily & NVIDIA Models
+# 🤖 Autonomous ReAct Agent – Nebius x NVIDIA Global AI Hackathon
 
-An autonomous Personal AI Agent built for the **Nebius x NVIDIA Global AI Hackathon** (Targeting: *Best Use of Tavily*).
+> **Submission for Category**: Best Use of Tavily
+
+An autonomous Reasoning and Action (ReAct) AI agent built to deliver accurate, real-time, and ground-truth web insights using the **Tavily Search API** combined with an OpenAI-compatible multi-provider LLM infrastructure.
+
+---
 
 ## 🌟 Key Features
-- **ReAct Architecture**: Implements Reason + Act decision-making cycles.
-- **Real-Time Web Search**: Powered by **Tavily Search API** for accurate, up-to-date context retrieval.
-- **LLM Integration**: Built to interface with NVIDIA Nemotron models hosted on Nebius Token Factory.
 
-## 📁 Project Structure
-- `agent.py`: Main ReAct agent loop and Tavily search integration.
-- `.env.example`: Template for environment variables.
-- `requirements.txt`: Project dependencies.
+* **ReAct Architecture**: Implements the full **Thought ➔ Action ➔ Observation ➔ Final Answer** decision-making loop for multi-step reasoning.
+* **Powered by Tavily Search API**: Uses Tavily's advanced search depth and automated synthesis to extract up-to-date facts without context degradation.
+* **Agnostic & Production-Ready**: Built on an OpenAI-compatible interface, allowing seamless model switching (OpenRouter, Nebius AI Studio, or local endpoints).
+* **Robust Tool Calling**: Integrates structured JSON Function Calling to handle search requests deterministically.
 
-## 🚀 Quick Start
-1. Clone the repository:
-   ```bash
-   git clone [https://github.com/VOTRE_PSEUDO/personal-ai-tavily-agent.git](https://github.com/VOTRE_PSEUDO/personal-ai-tavily-agent.git)
-   cd personal-ai-tavily-agent
+---
 
-## 🔌 LLM Providers & Compatibility
+## 🔄 ReAct Workflow
 
-This agent is designed with a multi-provider fallback architecture:
-- **Primary / Native Target**: NVIDIA Nemotron models hosted on **Nebius Token Factory**.
-- **Fallback / Multi-Region Support**: Compatible with OpenAI-standard APIs (e.g., OpenRouter) to guarantee uninterrupted agentic operation across all geographic regions.
+```text
+[User Query]
+     │
+     ▼
+[Thought] ──> Needs real-time/external data?
+     │
+     ├── YES ──> [Action] Trigger Tavily Search API
+     │                │
+     │                ▼
+     │           [Observation] Extract search synthesis & links
+     │                │
+     └── NO ──────────┴──> [Final Answer] Synthesize response with context
