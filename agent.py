@@ -1,34 +1,31 @@
 import os
 import json
-from tavily import TavilyClient
+from dotenv import load_dotenv
 from openai import OpenAI
+from tavily import TavilyClient
 
-# 1. Configuration des clés API
+# Chargement des variables d'environnement (.env)
+load_dotenv()
+
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
-NEBIUS_API_KEY = os.getenv("NEBIUS_API_KEY")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
-tavily_client = TavilyClient(api_key=TAVILY_API_KEY) if TAVILY_API_KEY else None
+if not TAVILY_API_KEY or not OPENROUTER_API_KEY:
+    raise ValueError("⚠️ Les clés TAVILY_API_KEY et OPENROUTER_API_KEY doivent être définies.")
 
-def get_llm_client():
-    """Initialise le client LLM avec fallback dynamique (Nebius ou OpenRouter)."""
-    if NEBIUS_API_KEY:
-        print("🚀 Backend LLM : Nebius Token Factory (NVIDIA Nemotron)")
-        return OpenAI(
-            base_url="https://api.studio.nebius.ai/v1/",
-            api_key=NEBIUS_API_KEY
-        ), "nvidia/nemotron-4-340b-instruct"
-    else:
-        print("🔄 Backend LLM : OpenRouter (Fallback)")
-        return OpenAI(
-            base_url="https://openrouter.ai/api/v1",
-            api_key=OPENROUTER_API_KEY
-        ), "openrouter/free"
+# Initialisation des clients
+tavily_client = TavilyClient(api_key=TAVILY_API_KEY)
+llm_client = OpenAI(
+    base_url="https://openrouter.ai/api/v1",
+    api_key=OPENROUTER_API_KEY,
+    default_headers={
+        "HTTP-Referer": "https://github.com",
+        "X-Title": "Tavily ReAct Agent",
+    }
+)
 
 def execute_tavily_search(query: str) -> str:
-    """Exécute une recherche web temps réel via l'API Tavily."""
-    if not tavily_client:
-        return "Erreur : TAVILY_API_KEY non configurée."
+    """Exécute une recherche web en temps réel via l'API Tavily."""
     try:
         search_result = tavily_client.search(
             query=query,
@@ -46,12 +43,12 @@ def execute_tavily_search(query: str) -> str:
     except Exception as e:
         return f"Erreur lors de la recherche Tavily : {str(e)}"
 
-# Définition du schéma d'outil au format OpenAI Function Calling
-tools_schema = [{
+# Schéma Function Calling pour OpenAI Spec
+tools = [{
     "type": "function",
     "function": {
         "name": "execute_tavily_search",
-        "description": "Recherche sur le web en temps réel les faits récents, actualités ou données précises.",
+        "description": "Recherche sur le web en temps réel pour obtenir des faits récents ou informations externes.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -66,24 +63,25 @@ tools_schema = [{
 }]
 
 def run_react_agent(user_prompt: str):
-    """Boucle agentique autonome ReAct (Thought -> Action -> Observe -> Final Answer)."""
-    client, model_name = get_llm_client()
-    
-    print(f"\n🤖 Question utilisateur : {user_prompt}")
+    """Exécute la boucle agentique ReAct (Thought -> Action -> Observe -> Final Answer)."""
+    print(f"\n🤖 Question : {user_prompt}")
     print("=" * 60)
 
     messages = [
         {
             "role": "system", 
-            "content": "Tu es un assistant IA autonome. Utilise l'outil `execute_tavily_search` dès qu'une information en temps réel est nécessaire."
+            "content": "Tu es un agent IA autonome. Utilise impérativement `execute_tavily_search` dès qu'une information en temps réel est nécessaire."
         },
         {"role": "user", "content": user_prompt}
     ]
 
-    response = client.chat.completions.create(
-        model=model_name,
+    MODEL_NAME = "openrouter/free"
+
+    # Thought -> Action
+    response = llm_client.chat.completions.create(
+        model=MODEL_NAME,
         messages=messages,
-        tools=tools_schema,
+        tools=tools,
         tool_choice="auto"
     )
 
@@ -94,11 +92,12 @@ def run_react_agent(user_prompt: str):
         args = json.loads(tool_call.function.arguments)
         search_query = args.get("query")
 
-        print(f"\n🧠 [THOUGHT] Recherche web requise.")
-        print(f"🔍 [ACTION] Recherche Tavily : '{search_query}'")
+        print(f"\n🧠 [THOUGHT] Besoin d'information en temps réel.")
+        print(f"🔍 [ACTION] Lancement Tavily Search : '{search_query}'")
 
+        # Observation
         observation = execute_tavily_search(search_query)
-        print("\n👁️ [OBSERVATION] Données web récupérées avec succès.")
+        print("\n👁️ [OBSERVATION] Données de Tavily récupérées.")
 
         messages.append(response_message)
         messages.append({
@@ -107,15 +106,16 @@ def run_react_agent(user_prompt: str):
             "content": observation
         })
 
-        final_response = client.chat.completions.create(
-            model=model_name,
+        # Final Answer
+        final_response = llm_client.chat.completions.create(
+            model=MODEL_NAME,
             messages=messages
         )
 
         print("\n✅ [FINAL ANSWER] :")
         print(final_response.choices[0].message.content)
     else:
-        print("\n✅ [FINAL ANSWER] (Sans recherche web) :")
+        print("\n✅ [FINAL ANSWER] (Réponse directe) :")
         print(response_message.content)
 
 if __name__ == "__main__":
