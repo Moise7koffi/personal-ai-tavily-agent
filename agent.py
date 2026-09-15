@@ -4,12 +4,20 @@ from dotenv import load_dotenv
 from openai import OpenAI
 from tavily import TavilyClient
 
-# 1. Chargement de l'environnement
-load_dotenv()
-
-TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
-NEBIUS_API_KEY = os.getenv("NEBIUS_API_KEY") # Optionnel pour le moment
+# Prise en charge des Secrets Colab + fichier .env local
+try:
+    from google.colab import userdata
+    TAVILY_API_KEY = userdata.get('TAVILY_API_KEY')
+    OPENROUTER_API_KEY = userdata.get('OPENROUTER_API_KEY')
+    try:
+        NEBIUS_API_KEY = userdata.get('NEBIUS_API_KEY')
+    except:
+        NEBIUS_API_KEY = None
+except ImportError:
+    load_dotenv()
+    TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
+    OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+    NEBIUS_API_KEY = os.getenv("NEBIUS_API_KEY")
 
 if not TAVILY_API_KEY:
     raise ValueError("⚠️ La clé TAVILY_API_KEY est obligatoire.")
@@ -29,7 +37,7 @@ else:
 
 llm_client = OpenAI(
     base_url=BASE_URL,
-Aapi_key=API_KEY,
+api_key=API_KEY,
     default_headers={
         "HTTP-Referer": "https://github.com",
         "X-Title": "Tavily Advanced ReAct Agent",
