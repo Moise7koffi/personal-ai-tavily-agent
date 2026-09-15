@@ -29,7 +29,7 @@ else:
 
 llm_client = OpenAI(
     base_url=BASE_URL,
-    api_key=API_KEY,
+Aapi_key=API_KEY,
     default_headers={
         "HTTP-Referer": "https://github.com",
         "X-Title": "Tavily Advanced ReAct Agent",
