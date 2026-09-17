@@ -1,54 +1,51 @@
-import os
+import requests
 import json
-from dotenv import load_dotenv
-from openai import OpenAI
+from google.colab import userdata
 from tavily import TavilyClient
 
-# Prise en charge des Secrets Colab + fichier .env local
-try:
-    from google.colab import userdata
-    TAVILY_API_KEY = userdata.get('TAVILY_API_KEY')
-    OPENROUTER_API_KEY = userdata.get('OPENROUTER_API_KEY')
-    try:
-        NEBIUS_API_KEY = userdata.get('NEBIUS_API_KEY')
-    except:
-        NEBIUS_API_KEY = None
-except ImportError:
-    load_dotenv()
-    TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
-    OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
-    NEBIUS_API_KEY = os.getenv("NEBIUS_API_KEY")
+# ============================================================
+# 1. CHARGEMENT DES CLÉS
+# ============================================================
+
+OPENROUTER_API_KEY = userdata.get("OPENROUTER_API_KEY")
+TAVILY_API_KEY = userdata.get("TAVILY_API_KEY")
+
+if not OPENROUTER_API_KEY:
+    raise ValueError("❌ OPENROUTER_API_KEY introuvable")
 
 if not TAVILY_API_KEY:
-    raise ValueError("⚠️ La clé TAVILY_API_KEY est obligatoire.")
+    raise ValueError("❌ TAVILY_API_KEY introuvable")
 
-# 2. Client LLM (Compatible OpenRouter & Nebius Token Factory)
-# Si NEBIUS_API_KEY est présent, on utilise Nebius Studio, sinon OpenRouter par défaut.
-if NEBIUS_API_KEY:
-    BASE_URL = "https://api.studio.nebius.ai/v1"
-    API_KEY = NEBIUS_API_KEY
-    MODEL_NAME = "meta-llama/Meta-Llama-3.1-70B-Instruct"
-    print("⚡ Mode actif : Nebius Token Factory")
-else:
-    BASE_URL = "https://openrouter.ai/api/v1"
-    API_KEY = OPENROUTER_API_KEY
-    MODEL_NAME = "openrouter/free"
-    print("🌐 Mode actif : OpenRouter Free Routing")
 
-llm_client = OpenAI(
-    base_url=BASE_URL,
-api_key=API_KEY,
-    default_headers={
-        "HTTP-Referer": "https://github.com",
-        "X-Title": "Tavily Advanced ReAct Agent",
-    }
+# ============================================================
+# 2. CONFIGURATION
+# ============================================================
+
+OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+MODEL_NAME = "openrouter/free"
+
+
+# ============================================================
+# 3. CLIENT TAVILY
+# ============================================================
+
+tavily_client = TavilyClient(
+    api_key=TAVILY_API_KEY
 )
 
-tavily_client = TavilyClient(api_key=TAVILY_API_KEY)
 
-# 3. Outils Avancés Tavily
-def tavily_search_tool(query: str, search_depth: str = "advanced") -> str:
-    """Effectue une recherche web approfondie via Tavily Search API."""
+# ============================================================
+# 4. FONCTION TAVILY SEARCH
+# ============================================================
+
+def tavily_search_tool(
+    query: str,
+    search_depth: str = "advanced"
+):
+    """
+    Recherche des informations actuelles avec Tavily.
+    """
+
     try:
         response = tavily_client.search(
             query=query,
@@ -56,121 +53,258 @@ def tavily_search_tool(query: str, search_depth: str = "advanced") -> str:
             max_results=5,
             include_answer=True
         )
-        output = []
-        if response.get("answer"):
-            output.append(f"📌 SYNTHÈSE TAVILY : {response['answer']}\n")
-        
-        output.append("🔗 RÉSULTATS DÉTAILLÉS :")
-        for res in response.get("results", []):
-            output.append(f"- [{res['title']}]({res['url']}): {res['content']}")
-        return "\n".join(output)
-    except Exception as e:
-        return f"Erreur Recherche Tavily : {str(e)}"
 
-def tavily_extract_tool(urls: list) -> str:
-    """Extrait le contenu complet d'une ou plusieurs URLs via Tavily Extract API."""
-    try:
-        response = tavily_client.extract(urls=urls)
-        results = []
-        for res in response.get("results", []):
-            results.append(f"📄 CONTENU DE {res['url']} :\n{res['raw_content'][:1000]}...")
-        return "\n\n".join(results)
-    except Exception as e:
-        return f"Erreur Extraction Tavily : {str(e)}"
+        sources = []
 
-# 4. Schémas des outils Function Calling
+        for result in response.get("results", []):
+            sources.append({
+                "title": result.get("title", ""),
+                "url": result.get("url", ""),
+                "content": result.get("content", "")
+            })
+
+        return {
+            "answer": response.get("answer", ""),
+            "sources": sources
+        }
+
+    except Exception as e:
+        return {
+            "error": str(e),
+            "answer": "",
+            "sources": []
+        }
+
+
+# ============================================================
+# 5. OUTIL DONNÉ AU LLM
+# ============================================================
+
 tools = [
     {
         "type": "function",
         "function": {
             "name": "tavily_search_tool",
-            "description": "Effectue une recherche web en temps réel pour obtenir des faits récents, actualités ou données précises.",
+            "description": (
+                "Recherche des informations récentes, actuelles "
+                "ou vérifiables sur Internet avec Tavily."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "query": {"type": "string", "description": "La requête de recherche optimisée."},
-                    "search_depth": {"type": "string", "enum": ["basic", "advanced"], "default": "advanced"}
-                },
-                "required": ["query"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "tavily_extract_tool",
-            "description": "Extrait et lit le contenu complet d'une ou plusieurs URLs spécifiques quand une recherche synthétique ne suffit pas.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "urls": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "Liste des URLs à analyser."
+                    "query": {
+                        "type": "string",
+                        "description": (
+                            "La recherche à effectuer sur Internet."
+                        )
+                    },
+                    "search_depth": {
+                        "type": "string",
+                        "enum": [
+                            "basic",
+                            "advanced"
+                        ],
+                        "description": (
+                            "Niveau de profondeur de la recherche."
+                        )
                     }
                 },
-                "required": ["urls"]
+                "required": ["query"]
             }
         }
     }
 ]
 
-# 5. Boucle ReAct Autonome Multi-Hop
-def run_react_agent(user_prompt: str, max_iterations: int = 4):
-    print(f"\n🤖 Question utilisateur : {user_prompt}")
-    print("=" * 70)
+
+# ============================================================
+# 6. APPEL OPENROUTER
+# ============================================================
+
+def openrouter_chat(
+    messages,
+    tools=None,
+    tool_choice="auto"
+):
+    """
+    Appelle OpenRouter directement avec requests.
+    """
+
+    headers = {
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://github.com",
+        "X-Title": "Personal AI Hackathon"
+    }
+
+    payload = {
+        "model": MODEL_NAME,
+        "messages": messages
+    }
+
+    if tools is not None:
+        payload["tools"] = tools
+        payload["tool_choice"] = tool_choice
+
+    response = requests.post(
+        OPENROUTER_URL,
+        headers=headers,
+        json=payload,
+        timeout=120
+    )
+
+    if response.status_code != 200:
+        raise RuntimeError(
+            f"OpenRouter HTTP {response.status_code}: "
+            f"{response.text}"
+        )
+
+    return response.json()
+
+
+# ============================================================
+# 7. PROMPT SYSTÈME
+# ============================================================
+
+SYSTEM_PROMPT = """
+Tu es un Personal AI Assistant.
+
+Tu réponds directement lorsque tu connais la réponse.
+
+Utilise Tavily lorsque :
+- l'utilisateur demande des informations récentes ;
+- l'information peut avoir changé ;
+- l'utilisateur demande une vérification sur Internet ;
+- une recherche web est nécessaire.
+
+Lorsque Tavily est utilisé :
+- base ta réponse sur les résultats obtenus ;
+- ne prétends jamais avoir vérifié quelque chose que tu n'as pas recherché ;
+- utilise les sources fournies par Tavily pour construire ta réponse.
+"""
+
+
+# ============================================================
+# 8. AGENT
+# ============================================================
+
+def run_agent(user_prompt: str):
 
     messages = [
         {
             "role": "system",
-            "content": (
-                "Tu es un agent ReAct autonome hautement intelligent. Utilise `tavily_search_tool` "
-                "pour rechercher des informations web récentes et `tavily_extract_tool` si tu as besoin "
-                "d'analyser le contenu complet d'une page web précise."
-            )
+            "content": SYSTEM_PROMPT
         },
-        {"role": "user", "content": user_prompt}
+        {
+            "role": "user",
+            "content": user_prompt
+        }
     ]
 
-    for iteration in range(1, max_iterations + 1):
-        response = llm_client.chat.completions.create(
-            model=MODEL_NAME,
-            messages=messages,
-            tools=tools,
-            tool_choice="auto"
+    print("🧠 Question :", user_prompt)
+    print("-" * 70)
+
+    # --------------------------------------------------------
+    # PREMIER APPEL AU LLM
+    # --------------------------------------------------------
+
+    response = openrouter_chat(
+        messages=messages,
+        tools=tools,
+        tool_choice="auto"
+    )
+
+    message = response["choices"][0]["message"]
+
+    # --------------------------------------------------------
+    # LE LLM NE DEMANDE AUCUN OUTIL
+    # --------------------------------------------------------
+
+    if not message.get("tool_calls"):
+
+        return message.get(
+            "content",
+            ""
         )
 
-        response_message = response.choices[0].message
-        messages.append(response_message)
+    # --------------------------------------------------------
+    # LE LLM DEMANDE UN OUTIL
+    # --------------------------------------------------------
 
-        if response_message.tool_calls:
-            for tool_call in response_message.tool_calls:
-                fn_name = tool_call.function.name
-                fn_args = json.loads(tool_call.function.arguments)
+    messages.append(message)
 
-                print(f"\n🧠 [THOUGHT - Étape {iteration}]: Analyse requise.")
-                print(f"🔍 [ACTION]: Exécution de `{fn_name}` avec : {fn_args}")
+    for tool_call in message["tool_calls"]:
 
-                if fn_name == "tavily_search_tool":
-                    observation = tavily_search_tool(**fn_args)
-                elif fn_name == "tavily_extract_tool":
-                    observation = tavily_extract_tool(**fn_args)
-                else:
-                    observation = "Outil inconnu."
+        function_name = tool_call["function"]["name"]
 
-                print(f"👁️ [OBSERVATION]: Données récupérées via Tavily API.")
+        try:
+            arguments = json.loads(
+                tool_call["function"]["arguments"]
+            )
+        except json.JSONDecodeError:
+            arguments = {}
 
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": tool_call.id,
-                    "content": observation
-                })
+        print("🔧 Outil demandé :", function_name)
+        print("📋 Arguments :", arguments)
+
+        # ----------------------------------------------------
+        # EXÉCUTION TAVILY
+        # ----------------------------------------------------
+
+        if function_name == "tavily_search_tool":
+
+            result = tavily_search_tool(
+                **arguments
+            )
+
+            print("✅ Tavily exécuté")
+
         else:
-            print("\n✅ [FINAL ANSWER] :")
-            print(response_message.content)
-            return
 
-    print("\n⚠️ Limite d'itérations atteinte.")
+            result = {
+                "error": (
+                    f"Outil inconnu : {function_name}"
+                )
+            }
 
-if __name__ == "__main__":
-    run_react_agent("Quelles sont les dernières fonctionnalités annoncées pour NVIDIA Rubin en 2026 ?")
+        # ----------------------------------------------------
+        # RENVOI DU RÉSULTAT AU LLM
+        # ----------------------------------------------------
+
+        messages.append({
+            "role": "tool",
+            "tool_call_id": tool_call["id"],
+            "content": json.dumps(
+                result,
+                ensure_ascii=False
+            )
+        })
+
+    # --------------------------------------------------------
+    # DEUXIÈME APPEL : LE LLM ANALYSE TAVILY
+    # --------------------------------------------------------
+
+    final_response = openrouter_chat(
+        messages=messages
+    )
+
+    return final_response["choices"][0]["message"].get(
+        "content",
+        ""
+    )
+
+
+# ============================================================
+# 9. TEST
+# ============================================================
+
+print("✅ Agent chargé avec succès")
+print("✅ OpenRouter :", MODEL_NAME)
+print("✅ Tavily connecté")
+print("✅ Tool calling prêt")
+
+answer = run_agent(
+    "Les dix meilleurs ordinateurs  en 2026 ?"
+)
+
+print("\n🤖 RÉPONSE FINALE :")
+print(answer)
