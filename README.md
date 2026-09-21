@@ -18,14 +18,15 @@ An autonomous Reasoning and Action (ReAct) AI agent built to deliver accurate, r
 ## 🔄 ReAct Workflow
 
 ```text
-[User Query]
-     │
-     ▼
-[Thought] ──> Needs real-time/external data?
-     │
-     ├── YES ──> [Action] Trigger Tavily Search API
-     │                │
-     │                ▼
-     │           [Observation] Extract search synthesis & links
-     │                │
-     └── NO ──────────┴──> [Final Answer] Synthesize response with context
+                 PERSONAL AI
+                      │
+             ┌────────┴────────┐
+             ↓                 ↓
+       Tavily Search      Tavily Extract
+             │                 │
+       trouver les infos   lire les sources
+             └────────┬────────┘
+                      ↓
+                    LLM
+                      ↓
+               réponse finale
